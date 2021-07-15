@@ -43,32 +43,32 @@ def create_session(local):
 
 def etl_dim_airport(spark, file_airports, output_data):
 
-    try:
-        print("      1) Airport Codes Dimension Table ETL started...\n")
-        # Load raw Airport Code data
-        df = spark.read.format("csv").option("header", "true").load(airport_data)
+    # try:
+    print("      1) Airport Codes Dimension Table ETL started...\n")
+    # Load raw Airport Code data
+    df = spark.read.format("csv").option("header", "true").load(file_airports)
 
-        # Transform raw Airport Code dataset
-        df.createOrReplaceTempView("df_airport")
-        df_airport = spark.sql('''
-                SELECT
-                    iata_code as i94port,
-                    municipality,
-                    coordinates
-                FROM
-                    df_airport
-                WHERE
-                    iata_code IS NOT NULL OR iata_code != ""
-        ''')
+    # Transform raw Airport Code dataset
+    df.createOrReplaceTempView("df_airport")
+    df_airport = spark.sql('''
+            SELECT
+                iata_code as i94port,
+                municipality,
+                coordinates
+            FROM
+                df_airport
+            WHERE
+                iata_code IS NOT NULL OR iata_code != ""
+    ''')
 
-        # Write cleaned Airport Codes data to S3 bucket as parquet files partitioned by IATA Port Code (aka i94port)
-        df_airport.write.parquet(output_data,mode='append',partitionBy=['i94port'])
-        print("         Airport Codes ETL complete!\n")
+    # Write cleaned Airport Codes data to S3 bucket as parquet files partitioned by IATA Port Code (aka i94port)
+    df_airport.write.parquet(output_data+"dim/",mode='append')
+    print("         Airport Codes ETL complete!\n")
 
-        return df_airport
+    return df_airport
 
-    except:
-        print("         Airport Codes ETL failed.\n")
+    # except:
+    #     print("         Airport Codes ETL failed.\n")
         
     # return df_airport
 
@@ -76,47 +76,37 @@ def etl_dim_airport(spark, file_airports, output_data):
 
 #### DIMENSION DATASET - DEMOGRAPHICS ####
 
-def etl_dim_demographics(spark, file_demographics, output_data):
+# def etl_dim_demographics(spark, file_demographics, output_data):
 
-    try:
-        print("      2) Demographics Dimension Table ETL started...\n")
-        # Load raw Demographics data
-        df = spark.read.format("csv").option("header", "true").load(file_demographics)
+#     # try:
+#     print("      2) Demographics Dimension Table ETL started...\n")
+#     # Load raw Demographics data
+#     df_demographics = spark.read.format("csv").option("header", "true").load(file_demographics)
 
-        # Transform raw Demographics dataset
-        df.createOrReplaceTempView("df_demographics")
-        df_demographics = spark.sql('''
-                SELECT
-                    iata_code as i94port,
-                    municipality,
-                    coordinates
-                FROM
-                    df_demographics
-                WHERE
-                    iata_code IS NOT NULL OR iata_code != ""
-        ''')
+#     # # Transform raw Demographics dataset
+#     # df.createOrReplaceTempView("df_demographics")
+#     # df_demographics = spark.sql('''
+#     #         SELECT
+#     #             iata_code as i94port,
+#     #             municipality,
+#     #             coordinates
+#     #         FROM
+#     #             df_demographics
+#     #         WHERE
+#     #             iata_code IS NOT NULL OR iata_code != ""
+#     # ''')
 
-        # Write cleaned Airport Codes data to S3 bucket as parquet files partitioned by IATA Port Code (aka i94port)
-        df_demographics.write.mode("append").partitionBy("i94port").parquet(os.path.join(output_data, "/fact_data/immigration.parquet"))
+#     # Write cleaned Airport Codes data to S3 bucket as parquet files partitioned by IATA Port Code (aka i94port)
+#     df_demographics.write.parquet(output_data,mode='append')
 
-        print("         Airport Codes ETL complete!\n")
+#     print("         Airport Codes ETL complete!\n")
 
-        return df_demographics
+#     return df_demographics
     
-    except:
-        print("         Airport Codes ETL failed.\n")
+    # except:
+    #     print("         Airport Codes ETL failed.\n")
         
     # return df_demographics
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -132,38 +122,37 @@ def etl_fact(spark, input_data, output_data, df_airport, local):
     else:
         df = spark.read.format('com.github.saurfang.sas.spark').load(input_data)
 
-    try:
-        print("\n         Immigration Data ETL starting...\n")
+    # try:
+    print("\n         Immigration Data ETL starting...\n")
 
-        # Insert input data into a temporary view so it can be queried
-        df_airport.createOrReplaceTempView("df_airport")
-        df.createOrReplaceTempView("df_immigration")
-        
-        # Query the specific columns and rows from the input data
-        df_immigration = spark.sql('''
-                SELECT
-                    df_immigration.i94yr as year,
-                    df_immigration.i94mon as month,
-                    SUBSTR(df_immigration.i94cit, 1, INSTR(df_immigration.i94cit, ",")) as city,
-                    df_immigration.i94port as port,
-                    df_immigration.arrdate as arrival_date,
-                    df_immigration.i94visa as reason,
-                    df_airport.municipality as city,
-                    df_airport.coordinates as coordinates
-                FROM
-                    df_immigration
-                        JOIN df_airport USING (i94port)
-                WHERE
-                    df_immigration.i94port IS NOT NULL OR df_immigration.i94port != ""
-                ''')
-        
-        # Write the results of the query to S3 as parquet files
-        df_immigration.write.parquet(output_data,mode='append',partitionBy=['port'])
+    # Insert input data into a temporary view so it can be queried
+    df_airport.createOrReplaceTempView("df_airport")
+    df.createOrReplaceTempView("df_immigration")
+    
+    # Query the specific columns and rows from the input data
+    df_immigration = spark.sql('''
+            SELECT
+                df_immigration.i94yr as year,
+                df_immigration.i94mon as month,
+                df_immigration.i94port as port,
+                df_immigration.arrdate as arrival_date,
+                df_immigration.i94visa as reason,
+                df_airport.municipality as city,
+                df_airport.coordinates as coordinates
+            FROM
+                df_immigration
+                    JOIN df_airport USING (i94port)
+            WHERE
+                df_immigration.i94port IS NOT NULL OR df_immigration.i94port != ""
+            ''')
+    
+    # Write the results of the query to S3 as parquet files
+    df_immigration.write.parquet(output_data+"fact/",mode='append',partitionBy=['port'])
 
-        print("\n         Immigration Data ETL complete!\n")
+    print("\n         Immigration Data ETL complete!\n")
 
-    except:
-        print("\n\n!!! Fact Data ETL Failed !!!\n\n")
+    # except:
+    #     print("\n\n!!! Fact Data ETL Failed !!!\n\n")
 
 
 
@@ -187,7 +176,7 @@ def main():
     file_demographics = 'us-cities-demographics.csv'
 
     df_airport = etl_dim_airport(spark, file_airports, output_data)
-    df_demographics = etl_dim_demographics(spark, file_demographics, output_data)
+    # df_demographics = etl_dim_demographics(spark, file_demographics, output_data)
     etl_fact(spark, input_data, output_data, df_airport, local)
 
 if __name__ == '__main__':
