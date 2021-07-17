@@ -429,57 +429,46 @@ def validation(spark, df):
         None
     '''
 
-    # try:
+    try:
 
-    # Insert input data into a temporary view so it can be queried
-    df.createOrReplaceTempView("df_immigration")
+        # Insert input data into a temporary view so it can be queried
+        df.createOrReplaceTempView("df_immigration")
 
-    # Initial validation to validate that the dataframe is not empty
-    if df.count() == 0:
-        Exception("Invalid dataset. Immigrations fact table is empty.")
-    else:
-        print("Total Records Loaded: " + str(df.count()))
-
-
-
-    print("\n         1) Dimension columns validation starting...\n")
-
-    columns = [
-                ("visa_type", 3),
-                ("gender", 4)
-    ]
-
-    for k, v in columns:
-
-        print("\n         Unique Values Quality Validation for Column: {}".format(k))
-        
-        query = spark.sql("SELECT COUNT(DISTINCT {}) FROM df_immigration".format(k))
-        result = query.collect()[0][0]
-        
-        if v == result:
-            print("         PASSED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
+        # Initial validation to validate that the dataframe is not empty
+        if df.count() == 0:
+            Exception("Invalid dataset. Immigrations fact table is empty.")
         else:
-            print("         FAILED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
+            print("Total Records Loaded: " + str(df.count()))
 
 
 
-    print("\n         2) Calculated fields validation starting...\n")
+        print("\n         Dimension columns validation starting...\n")
 
-    # Check IRID for duplicates
-    query = spark.sql("SELECT COUNT(irid) FROM df_immigration GROUP BY irid ORDER BY COUNT(irid) DESC".format(k))
-    result = query.collect()[0][0]
+        columns = [
+                    ("visa_type", 3),
+                    ("gender", 4)
+        ]
 
-    if result == 1:
-        print("         PASSED! Internal Reference ID validation...\n         No duplicate IRIDs found.")
-    else:
-        print("         FAILED! Internal Reference ID validation...\n         Max number of duplicate IRIDs = {}".format(result))
+        for k, v in columns:
+
+            print("\n         Unique Values Quality Validation for Column: {}".format(k))
+            
+            query = spark.sql("SELECT COUNT(DISTINCT {}) FROM df_immigration".format(k))
+            result = query.collect()[0][0]
+            
+            if v == result:
+                print("         PASSED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
+            else:
+                print("         FAILED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
 
 
-    print("\nImmigration Data Validation complete!\n")
 
 
-    # except:
-    #     print("\nImmigration Data Validation failed!\n")
+        print("\nImmigration Data Validation complete!\n")
+
+
+    except:
+        print("\nImmigration Data Validation failed!\n")
 
     return df
     
