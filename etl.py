@@ -38,7 +38,7 @@ def create_session(s3, sas):
 
 #### ETL DIMENSION DATASET - AIRPORT ####
 
-def etl_dim_airport(spark, input_data):
+def etl_dim_airport(spark, input_data, output_data):
     '''
     Function: 
         1) loads input dimension table: lookup_airport
@@ -77,7 +77,7 @@ def etl_dim_airport(spark, input_data):
     except:
         print("Airport Codes ETL failed.\n")
     
-    df_airport.write.parquet(df_airport+"fact/dim/",mode='overwrite')
+    df_airport.write.parquet(output_data+"dim/",mode='overwrite')
 
     return df_airport
         
@@ -88,7 +88,7 @@ def etl_dim_airport(spark, input_data):
 
 #### ETL DIMENSION DATASET - COUNTRIES ####
 
-def etl_dim_country(spark, input_data):
+def etl_dim_country(spark, input_data, output_data):
     '''
     Function: 
         1) loads input dimension table: lookup_country
@@ -128,7 +128,7 @@ def etl_dim_country(spark, input_data):
     except:
         print("Country Codes ETL failed.\n")
 
-    df_country.write.parquet(df_country+"fact/dim/",mode='overwrite')
+    df_country.write.parquet(output_data+"dim/",mode='overwrite')
     
     return df_country
 
@@ -176,7 +176,7 @@ def etl_dim_states(spark, input_data, output_data):
         print("State Codes ETL failed.\n")
 
     print("\n         Writing final results as parquet...\n")
-    df_states.write.parquet(output_data+"fact/dim/",mode='overwrite')
+    df_states.write.parquet(output_data+"dim/",mode='overwrite')
 
     return df_states
 
@@ -226,6 +226,7 @@ def etl_fact(spark, input_data, output_data, sas):
         df_immigration = spark.sql('''
                 SELECT
                     df_immigration.i94cit,
+                    df_immigration.i94res,
                     df_immigration.i94addr,
                     df_immigration.i94port,
                     df_immigration.i94yr as year,
@@ -233,6 +234,7 @@ def etl_fact(spark, input_data, output_data, sas):
                     df_immigration.airline as flight_airline,
                     df_immigration.FLTNO as flight_number,
                     df_immigration.i94visa as visa_code,
+                    df_immigration.visatype as visatype,
                     df_immigration.i94mode as mode_code,
                     df_immigration.biryear as birth_year,
                     df_immigration.i94bir as birth_age,
@@ -245,6 +247,7 @@ def etl_fact(spark, input_data, output_data, sas):
                     df_immigration.i94mode = 1
                 GROUP BY
                     df_immigration.i94cit,
+                    df_immigration.i94res,
                     df_immigration.i94addr,
                     df_immigration.i94port,
                     df_immigration.i94yr,
@@ -252,6 +255,7 @@ def etl_fact(spark, input_data, output_data, sas):
                     df_immigration.airline,
                     df_immigration.FLTNO,
                     df_immigration.i94visa,
+                    df_immigration.visatype,
                     df_immigration.i94mode,
                     df_immigration.biryear,
                     df_immigration.i94bir,
@@ -304,7 +308,7 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
         # Add calculated columns and slice dataset for non-null records based on key dimensions
         df = spark.sql('''
                 SELECT
-                    df_immigration.year || df_immigration.month || df_immigration.i94port || df_immigration.flight_airline || df_immigration.flight_number || df_immigration.visa_code || df_immigration.birth_year || df_immigration.gender as irid,
+                    df_immigration.year || df_immigration.i94cit || df_immigration.month || df_immigration.i94port || df_immigration.flight_airline || df_immigration.flight_number || df_immigration.visa_code || df_immigration.visatype || df_immigration.birth_year || df_immigration.gender as irid,
                     df_immigration.year,
                     df_immigration.month,
                     df_immigration.i94addr,
@@ -425,58 +429,57 @@ def validation(spark, df):
         None
     '''
 
-    try:
+    # try:
 
-        # Insert input data into a temporary view so it can be queried
-        df.createOrReplaceTempView("df_immigration")
+    # Insert input data into a temporary view so it can be queried
+    df.createOrReplaceTempView("df_immigration")
 
-        # Initial validation to validate that the dataframe is not empty
-        if df.count() == 0:
-            Exception("Invalid dataset. Immigrations fact table is empty.")
-        else:
-            print("Total Records Loaded: " + str(df.count()))
-
-
-
-        print("\n         1) Dimension columns validation starting...\n")
-
-        columns = [
-                    ("visa_code", 3),
-                    ("mode_transport", 1),
-                    ("gender", 4)
-        ]
-
-        for k, v in columns:
-
-            print("\n         Unique Values Quality Validation for Column: {}".format(k))
-            
-            query = spark.sql("SELECT COUNT(DISTINCT {}) FROM df_immigration".format(k))
-            result = query.collect()[0][0]
-            
-            if v == result:
-                print("         PASSED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
-            else:
-                print("         FAILED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
+    # Initial validation to validate that the dataframe is not empty
+    if df.count() == 0:
+        Exception("Invalid dataset. Immigrations fact table is empty.")
+    else:
+        print("Total Records Loaded: " + str(df.count()))
 
 
 
-        print("\n         2) Calculated fields validation starting...\n")
+    print("\n         1) Dimension columns validation starting...\n")
 
-        # Check IRID for duplicates
-        query = spark.sql("SELECT MAX(COUNT(irid)) FROM df_immigration GROUP BY irid".format(k))
+    columns = [
+                ("visa_type", 3),
+                ("gender", 4)
+    ]
+
+    for k, v in columns:
+
+        print("\n         Unique Values Quality Validation for Column: {}".format(k))
+        
+        query = spark.sql("SELECT COUNT(DISTINCT {}) FROM df_immigration".format(k))
         result = query.collect()[0][0]
-
-        if result == 1:
-            print("         PASSED! Internal Reference ID validation...\n         No duplicate IRIDs found.")
+        
+        if v == result:
+            print("         PASSED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
         else:
-            print("         FAILED! Internal Reference ID validation...\n         Max number of duplicate IRIDs = {}".format(result))
+            print("         FAILED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
 
 
-        print("\nImmigration Data Validation complete!\n")
+
+    print("\n         2) Calculated fields validation starting...\n")
+
+    # Check IRID for duplicates
+    query = spark.sql("SELECT COUNT(irid) FROM df_immigration GROUP BY irid ORDER BY COUNT(irid) DESC".format(k))
+    result = query.collect()[0][0]
+
+    if result == 1:
+        print("         PASSED! Internal Reference ID validation...\n         No duplicate IRIDs found.")
+    else:
+        print("         FAILED! Internal Reference ID validation...\n         Max number of duplicate IRIDs = {}".format(result))
 
 
-    except:
-        print("\nImmigration Data Validation failed!\n")
+    print("\nImmigration Data Validation complete!\n")
+
+
+    # except:
+    #     print("\nImmigration Data Validation failed!\n")
 
     return df
     
@@ -588,9 +591,9 @@ def main():
     file_state = 'state_lookup.csv'
 
     print("\n\nDimension tables ETL started...\n")
-    df_airport = etl_dim_airport(spark, file_airports)
-    df_country = etl_dim_country(spark, file_country)
-    df_states = etl_dim_states(spark, file_state)
+    df_airport = etl_dim_airport(spark, file_airports, output_data)
+    df_country = etl_dim_country(spark, file_country, output_data)
+    df_states = etl_dim_states(spark, file_state, output_data)
     
     print("\n\nFact table ETL started...\n")
     df_immigration = etl_fact(spark, input_data, output_data, sas)
