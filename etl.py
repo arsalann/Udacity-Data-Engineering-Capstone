@@ -456,7 +456,7 @@ def validation(spark, df):
             query = spark.sql("SELECT COUNT(DISTINCT {}) FROM df_immigration".format(k))
             result = query.collect()[0][0]
             
-            if v == result:
+            if result < v:
                 print("         PASSED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
             else:
                 print("         FAILED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
