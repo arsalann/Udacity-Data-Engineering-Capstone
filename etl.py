@@ -148,6 +148,12 @@ def etl_fact(spark, input_data, sas):
     else:
         df = spark.read.parquet(input_data)
 
+    # Initial validation to validate that the dataframe is not empty
+    if df.count() == 0:
+        Exception("Invalid dataset. Immigrations fact table is empty.")
+    else:
+        print("Total Records Loaded: " + str(df.count()))
+        
     try:
         print("\n         Immigration Data ETL starting...\n")
 
@@ -173,6 +179,8 @@ def etl_fact(spark, input_data, sas):
                     SUM(df_immigration.count) AS total_people
                 FROM
                     df_immigration
+                WHERE
+                    df_immigration.i94mode = 1
                 GROUP BY
                     df_immigration.i94cit,
                     df_immigration.i94addr,
@@ -214,7 +222,15 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
         # Add calculated columns and slice dataset for non-null records based on key dimensions
         df = spark.sql('''
                 SELECT
-                    df_immigration.year || df_immigration.month || df_immigration.i94port || df_immigration.flight_airline || df_immigration.flight_number || df_immigration.visa_code || df_immigration.mode_code || df_immigration.birth_year || df_immigration.gender as irid,
+                    df_immigration.year || df_immigration.month || df_immigration.i94port || df_immigration.flight_airline || df_immigration.flight_number || df_immigration.visa_code || df_immigration.birth_year || df_immigration.gender as irid,
+                    df_immigration.year,
+                    df_immigration.month,
+                    df_immigration.i94addr,
+                    df_immigration.i94port,
+                    df_immigration.flight_airline,
+                    df_immigration.flight_number,
+                    df_immigration.gender,
+                    df_immigration.i94cit,
                     IF(
                         df_immigration.visa_code = 1,
                         "Business",
@@ -228,28 +244,18 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
                             )
                         )
                     ) as visa_type,
-                    IF(
-                        df_immigration.mode_code = 1,
-                        "Air",
-                        IF(
-                            df_immigration.mode_code = 2,
-                            "Sea",
-                            IF(
-                                df_immigration.mode_code = 3,
-                                "Land",
-                                "N/A"
-                            )
-                        )
-                    ) as mode_transport,
                     (df_immigration.year - df_immigration.birth_year) as age,
-                    df_immigration.*
+                    df_immigration.birth_year,
+                    df_immigration.birth_age,
+                    df_immigration.total_flights,
+                    df_immigration.total_people
+
                 FROM
                     df_immigration
                 WHERE
                     df_immigration.i94cit IS NOT NULL AND
                     df_immigration.i94addr IS NOT NULL AND
                     df_immigration.i94port IS NOT NULL AND
-                    df_immigration.mode_code IS NOT NULL AND
                     df_immigration.flight_airline IS NOT NULL AND
                     df_immigration.birth_year IS NOT NULL AND
                     df_immigration.gender IS NOT NULL
@@ -306,7 +312,7 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
 
 
         print("\n         Writing final results as parquet...\n")
-        df.write.parquet(output_data+"fact/",mode='overwrite',partitionBy=['year', 'month', 'i94port'])
+        df.write.parquet(output_data+"fact/",mode='overwrite',partitionBy=['year', 'month', 'state'])
 
         print("\nImmigration Data Cleaning complete!\n")
         
@@ -322,7 +328,7 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
 
 #### VALIDATE FACT DATASET ####
 
-def validation_fact(spark, df):
+def validation(spark, df):
 
     try:
 
@@ -332,6 +338,8 @@ def validation_fact(spark, df):
         # Initial validation to validate that the dataframe is not empty
         if df.count() == 0:
             Exception("Invalid dataset. Immigrations fact table is empty.")
+        else:
+            print("Total Records Loaded: " + str(df.count()))
 
 
 
@@ -354,28 +362,22 @@ def validation_fact(spark, df):
                 print("         PASSED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
             else:
                 print("         FAILED! Unique values validation...\n         Column {} has {} unique values\n         Expected values were {}".format(k, result, v))
-                
+
+
 
         print("\n         2) Calculated fields validation starting...\n")
-        # Check age column
-        df = spark.sql('''
-                SELECT
-                    COUNT(df_immigration.*)
-                FROM
-                    df_immigration
-                WHERE
-                    df_immigration.age != df_immigration.birth_age
-                ''')
 
-        result = df.collect()[0][0]
-        
-        print("         Calculated fields validation...\n         {} records have an age that doesn't match their year of birth".format(result))
+        # Check IRID for duplicates
+        query = spark.sql("SELECT MAX(COUNT(irid)) FROM df_immigration GROUP BY irid".format(k))
+        result = query.collect()[0][0]
 
+        if result == 1:
+            print("         PASSED! Internal Reference ID validation...\n         No duplicate IRIDs found.")
+        else:
+            print("         FAILED! Internal Reference ID validation...\n         Max number of duplicate IRIDs = {}".format(result))
 
 
         print("\nImmigration Data Validation complete!\n")
-
-
 
 
     except:
@@ -383,6 +385,78 @@ def validation_fact(spark, df):
 
     return df
     
+
+
+def queries(spark, df):
+
+    try:
+
+        # Insert input data into a temporary view so it can be queried
+        df.createOrReplaceTempView("df")
+
+        print("Query 1: Top 5 routes with the most number of teenagers entered in a given month")
+        query = spark.sql("""
+            SELECT
+                df.month,
+                df.state,
+                df.city,
+                df.origin_country,
+                df.gender,
+                df.age,
+                SUM(df.total_flights) AS total_flights,
+                SUM(df.total_people) AS total_people,
+                SUM(df.total_people)/SUM(df.total_flights) AS avg_per_flight
+            FROM
+                df
+            WHERE
+                df.month = 4 AND
+                df.age < 19 AND
+                df.age > 12
+            GROUP BY
+                df.month,
+                df.state,
+                df.city,
+                df.origin_country,
+                df.gender,
+                df.age
+            ORDER BY
+                SUM(df.total_people) DESC
+        """)
+
+        print(query.sort(query.total_people.desc()).show(5, truncate=True))
+
+        
+        print("Query 2: Routes with more than 5 teenagers per flight")
+        query.createOrReplaceTempView("query1")
+
+        query = spark.sql("""
+            SELECT
+                query1.*
+            FROM
+                query1
+            WHERE
+                query1.avg_per_flight > 5
+        """)
+
+        print(query.sort(query.total_people.desc()).show(5, truncate=True))
+        query.createOrReplaceTempView("query2")
+
+
+        print("\nSample queries complete!\n")
+
+
+    except:
+        print("\nSample queries failed!\n")
+
+    return df
+
+
+
+
+
+
+
+
 
 
 
@@ -402,7 +476,8 @@ def main():
     # TODO Add SAS7DBAT files directory or parquet files (for testing purposes)
     # input_data = '../../data/*/*.sas7bdat'
     # input_data = '../../data/18-83510-I94-Data-2016/i94_apr16_sub.sas7bdat'
-    input_data = 'sas_data/*'
+    # input_data = 'sas_data/*'
+    input_data = 'sas_data/part-00002-b9542815-7a8d-45fc-9c67-c9c5007ad0d4-c000.snappy.parquet'
 
 
     print("\n\nInitialize Spark...\n")
@@ -423,8 +498,15 @@ def main():
     print("\n\nFact table cleaning started...\n")
     df_immigration = clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_data)
 
-
     print(df_immigration.sort(df_immigration.total_people.desc()).show(5, truncate=False)) 
+
+    print("\n\nValidation started...\n")
+    validation(spark, df_immigration)
+
+    print("\n\nSample queries started...\n")
+    queries(spark, df_immigration)
+
+    print("\n\n\n DATA PIPELINE COMPLETE")
 
 
 if __name__ == '__main__':
