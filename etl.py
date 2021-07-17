@@ -38,14 +38,27 @@ def create_session(s3, sas):
 
 #### ETL DIMENSION DATASET - AIRPORT ####
 
-def etl_dim_airport(spark, file_airports):
+def etl_dim_airport(spark, input_data):
+    '''
+    Function: 
+        1) loads input dimension table: lookup_airport
+        2) create a temporary spark view: df_airport
+        3) stage the data using a spark sql query
+        4) write to storage as parquet files
+    Parameters:
+        spark: the spark session cursor
+        input_data: csv file
+        output_path: path to S3 bucket or local directory
+    Returns:
+        Dataframe
+    '''
 
     try:
 
         print("      1) Airport Codes Dimension Table ETL started...\n")
 
         # Load raw Airport Code data
-        df = spark.read.format("csv").option("header", "true").load(file_airports)
+        df = spark.read.format("csv").option("header", "true").load(input_data)
 
         # Transform raw Airport Code dataset
         df.createOrReplaceTempView("df_airport")
@@ -63,7 +76,9 @@ def etl_dim_airport(spark, file_airports):
 
     except:
         print("Airport Codes ETL failed.\n")
-        
+    
+    df_airport.write.parquet(df_airport+"fact/dim/",mode='overwrite')
+
     return df_airport
         
 
@@ -73,14 +88,27 @@ def etl_dim_airport(spark, file_airports):
 
 #### ETL DIMENSION DATASET - COUNTRIES ####
 
-def etl_dim_country(spark, file_countries):
+def etl_dim_country(spark, input_data):
+    '''
+    Function: 
+        1) loads input dimension table: lookup_country
+        2) create a temporary spark view: df_country
+        3) stage the data using a spark sql query
+        4) write to storage as parquet files
+    Parameters:
+        spark: the spark session cursor
+        input_data: csv file
+        output_path: path to S3 bucket or local directory
+    Returns:
+        Dataframe
+    '''
 
     try:
 
         print("      2) Country Codes Dimension Table ETL started...\n")
 
         # Load raw Country Codes data
-        df = spark.read.format("csv").option("header", "true").load(file_countries)
+        df = spark.read.format("csv").option("header", "true").load(input_data)
 
         # Transform raw Country Codes dataset
         df.createOrReplaceTempView("df_country")
@@ -100,6 +128,8 @@ def etl_dim_country(spark, file_countries):
     except:
         print("Country Codes ETL failed.\n")
 
+    df_country.write.parquet(df_country+"fact/dim/",mode='overwrite')
+    
     return df_country
 
 
@@ -108,14 +138,27 @@ def etl_dim_country(spark, file_countries):
 
 #### ETL DIMENSION DATASET - STATES ####
 
-def etl_dim_states(spark, file_states):
+def etl_dim_states(spark, input_data, output_data):
+    '''
+    Function: 
+        1) loads input dimension table: lookup_state
+        2) create a temporary spark view: df_state
+        3) stage the data using a spark sql query
+        4) write to storage as parquet files
+    Parameters:
+        spark: the spark session cursor
+        input_data: csv file
+        output_path: path to S3 bucket or local directory
+    Returns:
+        Dataframe
+    '''
 
     try:
 
         print("      3) State Codes Dimension Table ETL started...\n")
 
         # Load raw State Codes data
-        df = spark.read.format("csv").option("header", "true").load(file_states)
+        df = spark.read.format("csv").option("header", "true").load(input_data)
 
         # Transform raw State Codes dataset
         df.createOrReplaceTempView("df_states")
@@ -132,6 +175,9 @@ def etl_dim_states(spark, file_states):
     except:
         print("State Codes ETL failed.\n")
 
+    print("\n         Writing final results as parquet...\n")
+    df_states.write.parquet(output_data+"fact/dim/",mode='overwrite')
+
     return df_states
 
 
@@ -141,7 +187,23 @@ def etl_dim_states(spark, file_states):
 
 #### ETL FACT DATASET - IMMIGRATION I94 ####
 
-def etl_fact(spark, input_data, sas):
+def etl_fact(spark, input_data, output_data, sas):
+    '''
+    Function: 
+        1) loads raw fact data
+        2) create a temporary spark view: df_immigration
+        3) stage the data using a spark sql query
+        4) write to storage as parquet files
+    Parameters:
+        spark: the spark session cursor
+        input_data: sas7dbat or parquet files
+        output_path: path to S3 bucket or local directory
+        sas: user entered parameter to switch sas7dbat and parquet format when reading input data 
+            if sas is true, it will read source sas7dbat files
+            otherwise, it will read from local parquet files (test environment)
+    Returns:
+        Dataframe
+    '''
 
     if sas:
         df = spark.read.format('com.github.saurfang.sas.spark').load(input_data)
@@ -198,6 +260,9 @@ def etl_fact(spark, input_data, sas):
 
         print("\nImmigration Data ETL complete!\n")
 
+        print("\n         Writing final results as parquet...\n")
+        df_immigration.write.parquet(output_data+"fact/etl/",mode='overwrite',partitionBy=['year', 'month', 'i94addr'])
+
     except:
         print("\nImmigration Data ETL failed!\n")
     
@@ -209,6 +274,23 @@ def etl_fact(spark, input_data, sas):
 #### CLEAN FACT DATASET ####
 
 def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_data):
+    '''
+    Function: 
+        1) loads the results from etl_fact
+        2) loads the results from dimension table etl functions
+        3) create a temporary spark view for all the input dataframes
+        4) stage the data using spark sql queries
+        5) write to storage as parquet files
+    Parameters:
+        spark: the spark session cursor
+        df_immigration: dataframe returned by etl_fact
+        df_country: dataframe returned by etl_dim_country
+        df_states: dataframe returned by etl_dim_states
+        df_airport: dataframe returned by etl_dim_airport
+        output_path: path to S3 bucket or local directory
+    Returns:
+        Dataframe
+    '''
 
     try:
 
@@ -312,7 +394,7 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
 
 
         print("\n         Writing final results as parquet...\n")
-        df.write.parquet(output_data+"fact/",mode='overwrite',partitionBy=['year', 'month', 'state'])
+        df.write.parquet(output_data+"fact/clean/",mode='overwrite',partitionBy=['year', 'month', 'state'])
 
         print("\nImmigration Data Cleaning complete!\n")
         
@@ -329,6 +411,19 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
 #### VALIDATE FACT DATASET ####
 
 def validation(spark, df):
+    '''
+    Function: 
+        1) loads the results from clean_fact
+        2) create a temporary spark view
+        3) check if the input dataframe is empty
+        4) loop through key dimension columns and validate count of unique values
+        5) quality check the irid and determine if any duplicate records exist
+    Parameters:
+        spark: the spark session cursor
+        df: dataframe returned by clean_fact
+    Returns:
+        None
+    '''
 
     try:
 
@@ -388,6 +483,17 @@ def validation(spark, df):
 
 
 def queries(spark, df):
+    '''
+    Function: 
+        1) loads the results from clean_fact
+        2) create a temporary spark view
+        3) execute sample queries
+    Parameters:
+        spark: the spark session cursor
+        df: dataframe returned by clean_fact
+    Returns:
+        None
+    '''
 
     try:
 
@@ -455,12 +561,6 @@ def queries(spark, df):
 
 
 
-
-
-
-
-
-
 def main():
 
     # TODO Change below to True if reading/writing from local file in test environment
@@ -493,7 +593,7 @@ def main():
     df_states = etl_dim_states(spark, file_state)
     
     print("\n\nFact table ETL started...\n")
-    df_immigration = etl_fact(spark, input_data, sas)
+    df_immigration = etl_fact(spark, input_data, output_data, sas)
 
     print("\n\nFact table cleaning started...\n")
     df_immigration = clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_data)
