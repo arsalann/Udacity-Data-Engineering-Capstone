@@ -165,7 +165,7 @@ def etl_fact(spark, input_data, sas):
                     df_immigration.airline as flight_airline,
                     df_immigration.FLTNO as flight_number,
                     df_immigration.i94visa as visa_code,
-                    df_immigration.i94mode as mode_transport,
+                    df_immigration.i94mode as mode_code,
                     df_immigration.biryear as birth_year,
                     df_immigration.i94bir as birth_age,
                     df_immigration.gender,
@@ -198,6 +198,7 @@ def etl_fact(spark, input_data, sas):
 
 
 
+#### CLEAN FACT DATASET ####
 
 def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_data):
 
@@ -213,7 +214,7 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
         # Add calculated columns and slice dataset for non-null records based on key dimensions
         df = spark.sql('''
                 SELECT
-                    df_immigration.year || df_immigration.month || df_immigration.i94port || df_immigration.flight_airline || df_immigration.flight_number || df_immigration.visa_code || df_immigration.mode_transport || df_immigration.birth_year || df_immigration.gender as irid,
+                    df_immigration.year || df_immigration.month || df_immigration.i94port || df_immigration.flight_airline || df_immigration.flight_number || df_immigration.visa_code || df_immigration.mode_code || df_immigration.birth_year || df_immigration.gender as irid,
                     IF(
                         df_immigration.visa_code = 1,
                         "Business",
@@ -227,6 +228,19 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
                             )
                         )
                     ) as visa_type,
+                    IF(
+                        df_immigration.mode_code = 1,
+                        "Air",
+                        IF(
+                            df_immigration.mode_code = 2,
+                            "Sea",
+                            IF(
+                                df_immigration.mode_code = 3,
+                                "Land",
+                                "N/A"
+                            )
+                        )
+                    ) as mode_transport,
                     (df_immigration.year - df_immigration.birth_year) as age,
                     df_immigration.*
                 FROM
@@ -235,6 +249,7 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
                     df_immigration.i94cit IS NOT NULL AND
                     df_immigration.i94addr IS NOT NULL AND
                     df_immigration.i94port IS NOT NULL AND
+                    df_immigration.mode_code IS NOT NULL AND
                     df_immigration.flight_airline IS NOT NULL AND
                     df_immigration.birth_year IS NOT NULL AND
                     df_immigration.gender IS NOT NULL
@@ -304,6 +319,8 @@ def clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_
 
 
 
+
+#### VALIDATE FACT DATASET ####
 
 def validation_fact(spark, df):
 
@@ -407,7 +424,7 @@ def main():
     df_immigration = clean_fact(spark, df_immigration, df_country, df_states, df_airport, output_data)
 
 
-    print(df_immigration.sort(df_immigration.total_people.desc()).show(5, truncate=True)) 
+    print(df_immigration.sort(df_immigration.total_people.desc()).show(5, truncate=False)) 
 
 
 if __name__ == '__main__':
